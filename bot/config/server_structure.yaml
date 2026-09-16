@@ -28,12 +28,6 @@ roles:
   - name: "Новобранец | Recruit"
     color: "#95a5a6"
     hoist: false
-  - name: "🇷🇺 RU"
-    color: null
-    hoist: false
-  - name: "🇬🇧 EN"
-    color: null
-    hoist: false
   - name: "Штурм | Assault"
     color: "#c0392b"
     hoist: false
@@ -49,9 +43,6 @@ roles:
   - name: "Поддержка | Support"
     color: "#27ae60"
     hoist: false
-  - name: "Зритель | Viewer"
-    color: "#7f8c8d"
-    hoist: false
 
 categories:
   - name: "📜 НАЧАЛО / START HERE"
@@ -60,14 +51,12 @@ categories:
   - name: "📢 ШТАБ / HQ"
     channels:
       - {name: "объявления-announcements", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
-      - {name: "новости-клана", type: text}
-      - {name: "расписание-операций", type: text}
   - name: "🎯 ОПЕРАЦИИ / OPERATIONS"
     channels:
       - {name: "сбор-на-операцию", type: text}
-      - {name: "статус-серверов", type: text}
       - {name: "карта-и-счёт", type: text, restricted_to: ["Глава отряда | Squad Lead", "Офицер | Officer", "Верховный Главнокомандующий | Supreme Commander"]}
   - name: "🎯 АКТИВНЫЕ ОПЕРАЦИИ"
+    dynamic: true  # содержимое управляется /start-op, /sync-server никогда не трогает каналы внутри
     channels: []  # временные пары текст+голос создаёт /start-op (bot/cogs/ops.py)
   - name: "🎬 КОНТЕНТ / CONTENT"
     channels:
@@ -76,7 +65,6 @@ categories:
       - {name: "тактика-обсуждение", type: text}
   - name: "🛠 ТЕХНИЧЕСКОЕ / TECH"
     channels:
-      - {name: "баг-репорты", type: text}
       - {name: "обратная-связь", type: text}
   - name: "🔒 ШТАБ ОФИЦЕРОВ"
     channels:
@@ -95,3 +83,8 @@ ops:
   announce_channel: "сбор-на-операцию"
   temp_category: "🎯 АКТИВНЫЕ ОПЕРАЦИИ"
   cleanup_delay_seconds: 300
+
+sync:
+  # /sync-server необратимо удаляет роли/каналы, которых нет в этом файле.
+  # Доступ уже, чем у /report и /start-op (Squad Lead+) — только Officer+.
+  allowed_roles: ["Офицер | Officer", "Верховный Главнокомандующий | Supreme Commander"]
