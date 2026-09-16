@@ -1,0 +1,94 @@
+# Стартовый конфиг структуры Discord-сервера РНБ
+# Используется cogs/provisioning.py (Фаза 1). Дополняй по мере необходимости.
+#
+# ВАЖНО: Discord-роли не переводятся под каждого пользователя отдельно — у роли
+# одно имя. Поэтому имена ролей ниже двуязычные ("RU | EN"), тот же принцип,
+# что и для общих отрядных каналов ("штурм-assault"). restricted_to в секции
+# channels должен ТОЧНО совпадать со строкой name в секции roles.
+
+roles:
+  - name: "Верховный Главнокомандующий | Supreme Commander"
+    color: "#e74c3c"
+    hoist: true
+  - name: "Глава отряда | Squad Lead"
+    color: "#e67e22"
+    hoist: true
+  - name: "Офицер | Officer"
+    color: "#f1c40f"
+    hoist: true
+  - name: "Боец | Trooper"
+    color: "#3498db"
+    hoist: false
+  - name: "Новобранец | Recruit"
+    color: "#95a5a6"
+    hoist: false
+  - name: "🇷🇺 RU"
+    color: null
+    hoist: false
+  - name: "🇬🇧 EN"
+    color: null
+    hoist: false
+  - name: "Штурм | Assault"
+    color: "#c0392b"
+    hoist: false
+  - name: "Логистика | Logistics"
+    color: "#16a085"
+    hoist: false
+  - name: "Разведка | Recon"
+    color: "#8e44ad"
+    hoist: false
+  - name: "Транспорт | Transport"
+    color: "#2980b9"
+    hoist: false
+  - name: "Поддержка | Support"
+    color: "#27ae60"
+    hoist: false
+  - name: "Зритель | Viewer"
+    color: "#7f8c8d"
+    hoist: false
+
+categories:
+  - name: "📜 НАЧАЛО / START HERE"
+    channels:
+      - {name: "правила-verification", type: text}
+  - name: "📢 ШТАБ / HQ"
+    channels:
+      - {name: "объявления-announcements", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
+      - {name: "новости-клана", type: text}
+      - {name: "расписание-операций", type: text}
+  - name: "🎯 ОПЕРАЦИИ / OPERATIONS"
+    channels:
+      - {name: "сбор-на-операцию", type: text}
+      - {name: "статус-серверов", type: text}
+      - {name: "карта-и-счёт", type: text, restricted_to: ["Глава отряда | Squad Lead", "Офицер | Officer", "Верховный Главнокомандующий | Supreme Commander"]}
+  - name: "⚔️ ОТРЯДЫ / SQUADS"
+    channels:
+      - {name: "штурм-assault", type: text, restricted_to: ["Штурм | Assault"]}
+      - {name: "логистика-logistics", type: text, restricted_to: ["Логистика | Logistics"]}
+      - {name: "разведка-recon", type: text, restricted_to: ["Разведка | Recon"]}
+      - {name: "транспорт-transport", type: text, restricted_to: ["Транспорт | Transport"]}
+      - {name: "поддержка-support", type: text, restricted_to: ["Поддержка | Support"]}
+  - name: "🔊 ГОЛОС / VOICE"
+    channels:
+      - {name: "➕ Создать голосовой", type: voice_trigger}
+  - name: "🎬 КОНТЕНТ / CONTENT"
+    channels:
+      - {name: "хайлайты-highlights", type: text}
+      - {name: "ютуб-канал-youtube", type: text}
+      - {name: "тактика-обсуждение", type: text}
+  - name: "🛠 ТЕХНИЧЕСКОЕ / TECH"
+    channels:
+      - {name: "баг-репорты", type: text}
+      - {name: "обратная-связь", type: text}
+  - name: "🔒 ШТАБ ОФИЦЕРОВ"
+    channels:
+      - {name: "офицерский-стол", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
+      - {name: "модерация", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
+
+translate:
+  mirror_pairs_enabled: false
+  mirror_pairs: []  # заполнить после Фазы 1: [{ru_channel: "объявления-announcements", en_channel: "..."}]
+
+report:
+  source: manual  # переключить на "rcon", когда появится проверенный инструмент
+  channel: "карта-и-счёт"
