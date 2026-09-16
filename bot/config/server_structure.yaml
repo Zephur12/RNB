@@ -51,6 +51,7 @@ categories:
   - name: "📢 ШТАБ / HQ"
     channels:
       - {name: "объявления-announcements", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
+      - {name: "💬 болталка-chat", type: text}
   - name: "🎯 ОПЕРАЦИИ / OPERATIONS"
     channels:
       - {name: "сбор-на-операцию", type: text}
