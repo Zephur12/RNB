@@ -182,9 +182,9 @@ class Provisioning(commands.Cog):
         roles_by_name: dict[str, discord.Role],
         failed: list[str],
         channel_name: str,
-    ) -> Optional[dict]:
+    ) -> dict:
         if not restricted_to:
-            return None
+            return {}
 
         overwrites: dict = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
         for role_name in restricted_to:
