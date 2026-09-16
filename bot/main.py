@@ -12,9 +12,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("rnb_wardogs")
 
-COGS = ["cogs.provisioning", "cogs.report"]
+COGS = ["cogs.provisioning", "cogs.report", "cogs.translate"]
 
 intents = discord.Intents.default()
+intents.message_content = True
 
 
 class RNBBot(commands.Bot):

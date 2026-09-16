@@ -27,6 +27,9 @@ copy .env.example .env
       создаёт/раздаёт (иначе `create_role`/`create_channel` с overwrites
       будут падать с `Forbidden`)
 * [ ] Токен лежит в `.env`, `.env` не закоммичен
+* [ ] В Developer Portal → Bot включён привилегированный интент **Message
+      Content Intent** (нужен для команды `!tr` — иначе бот не увидит текст
+      сообщений)
 
 ## Запуск
 
@@ -70,6 +73,31 @@ python bot/main.py
 > отряды, предупреждение при "зажаты"). Пришли реальный шаблон, если он
 > отличается, — подгоним один в один.
 
+### `!tr <текст>`
+
+Текстовая команда (не slash), доступна всем. Автоматически определяет
+направление перевода: если в тексте есть кириллица — RU→EN, иначе EN→RU.
+Отвечает переводом в том же канале (reply, без лишнего пинга). Перевод — через
+`deep-translator` (Google Translate без официального ключа/квоты API).
+
+#### Зеркалирование RU↔EN-каналов (опционально, выключено по умолчанию)
+
+В `server_structure.yaml` есть секция:
+
+```yaml
+translate:
+  mirror_pairs_enabled: false
+  mirror_pairs:
+    - {ru_channel: "объявления-announcements", en_channel: "..."}
+```
+
+Если включить `mirror_pairs_enabled: true` и заполнить пары каналов —
+каждое обычное сообщение в `ru_channel` будет переведено и продублировано в
+`en_channel` через webhook, подписанным именем и аватаркой автора. Свои же
+переведённые сообщения бот не зеркалит повторно (проверка по `webhook_id`).
+Webhook (`РНБ Translate Mirror`) создаётся автоматически при первом
+срабатывании в целевом канале — боту нужны права Manage Webhooks.
+
 ## Структура
 
 ```
@@ -78,6 +106,7 @@ bot/
   cogs/
     provisioning.py     # /setup-server
     report.py            # /report
+    translate.py         # !tr + опциональное зеркалирование каналов
   config/
     server_structure.yaml
   data/                 # создаётся кодом; не коммитится (см. .gitignore)
