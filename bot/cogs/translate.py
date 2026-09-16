@@ -2,25 +2,19 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 import discord
 import yaml
 from deep_translator import GoogleTranslator
 from discord.ext import commands
 
-log = logging.getLogger("rnb_wardogs.translate")
+from . import _shared
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "server_structure.yaml"
+log = logging.getLogger("rnb_wardogs.translate")
 
 CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 
 MIRROR_WEBHOOK_NAME = "РНБ Translate Mirror"
-
-
-def _load_config() -> dict:
-    with CONFIG_PATH.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def _detect_direction(text: str) -> tuple[str, str]:
@@ -39,7 +33,7 @@ class Translate(commands.Cog):
 
     def _load_mirror_config(self) -> None:
         try:
-            config = _load_config()
+            config = _shared.load_config()
         except (FileNotFoundError, yaml.YAMLError) as exc:
             log.warning("Не удалось прочитать конфиг зеркалирования переводов: %s", exc)
             return
@@ -47,7 +41,7 @@ class Translate(commands.Cog):
         translate_cfg = config.get("translate", {}) or {}
         self._mirror_enabled = bool(translate_cfg.get("mirror_pairs_enabled", False))
         self._mirror_pairs = [
-            (pair["ru_channel"], pair["en_channel"])
+            (_shared.normalize_channel_name(pair["ru_channel"]), _shared.normalize_channel_name(pair["en_channel"]))
             for pair in translate_cfg.get("mirror_pairs", []) or []
             if pair.get("ru_channel") and pair.get("en_channel")
         ]

@@ -150,7 +150,9 @@ class Ops(commands.Cog):
         delay = ops_cfg.get("cleanup_delay_seconds", 300)
 
         category = discord.utils.get(guild.categories, name=temp_category_name)
-        announce_channel = discord.utils.get(guild.text_channels, name=announce_channel_name)
+        announce_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(announce_channel_name)
+        )
         if category is None or announce_channel is None:
             await interaction.response.send_message(
                 f"Категория «{temp_category_name}» или канал «{announce_channel_name}» не найдены. "

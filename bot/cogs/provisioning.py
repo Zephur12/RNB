@@ -145,7 +145,7 @@ class Provisioning(commands.Cog):
         existed: list[str],
         failed: list[str],
     ) -> None:
-        name = chan_cfg["name"]
+        name = _shared.normalize_channel_name(chan_cfg["name"])
         chan_type = CHANNEL_TYPE_MAP.get(chan_cfg.get("type", "text"), discord.ChannelType.text)
 
         existing = discord.utils.get(category.channels, name=name)
@@ -222,6 +222,7 @@ class Provisioning(commands.Cog):
         name="sync-server",
         description="Найти и удалить роли/каналы, которых нет в конфиге (с подтверждением). Officer+.",
     )
+    @app_commands.default_permissions(manage_guild=True)
     async def sync_server(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         if guild is None:
@@ -312,7 +313,8 @@ class Provisioning(commands.Cog):
         configured_category_names = {c["name"] for c in categories_config}
         dynamic_category_names = {c["name"] for c in categories_config if c.get("dynamic")}
         expected_channels_by_category = {
-            c["name"]: {ch["name"] for ch in c.get("channels", [])} for c in categories_config
+            c["name"]: {_shared.normalize_channel_name(ch["name"]) for ch in c.get("channels", [])}
+            for c in categories_config
         }
 
         categories_to_delete: list[discord.CategoryChannel] = []

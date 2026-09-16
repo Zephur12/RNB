@@ -104,7 +104,9 @@ class Report(commands.Cog):
             )
             return
 
-        target_channel = discord.utils.get(guild.text_channels, name=report_channel_name)
+        target_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(report_channel_name)
+        )
         if target_channel is None:
             await interaction.response.send_message(
                 f"Канал «{report_channel_name}» не найден на сервере. Запусти `/setup-server`.", ephemeral=True
