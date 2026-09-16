@@ -11,9 +11,10 @@ import yaml
 from discord import app_commands
 from discord.ext import commands
 
+from . import _shared
+
 log = logging.getLogger("rnb_wardogs.report")
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "server_structure.yaml"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 LOG_PATH = DATA_DIR / "match_log.csv"
 
@@ -54,22 +55,6 @@ class Report(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @staticmethod
-    def _allowed_role_names(config: dict) -> list[str]:
-        report_channel_name = config.get("report", {}).get("channel")
-        for category in config.get("categories", []):
-            for chan in category.get("channels", []):
-                if chan.get("name") == report_channel_name:
-                    return chan.get("restricted_to", [])
-        return []
-
-    @staticmethod
-    def _has_report_access(member: discord.Member, allowed_role_names: list[str]) -> bool:
-        if member.guild_permissions.administrator:
-            return True
-        member_role_names = {r.name for r in member.roles}
-        return bool(member_role_names & set(allowed_role_names))
-
     @app_commands.command(name="report", description="Отчёт по матчу: карта, счёт, статус")
     @app_commands.describe(
         map="Название карты",
@@ -103,22 +88,22 @@ class Report(commands.Cog):
             return
 
         try:
-            config = _load_config()
+            config = _shared.load_config()
         except FileNotFoundError:
-            await interaction.response.send_message(f"Конфиг не найден: `{CONFIG_PATH}`", ephemeral=True)
+            await interaction.response.send_message(f"Конфиг не найден: `{_shared.CONFIG_PATH}`", ephemeral=True)
             return
         except yaml.YAMLError as exc:
             await interaction.response.send_message(f"Ошибка чтения yaml: `{exc}`", ephemeral=True)
             return
 
-        allowed_role_names = self._allowed_role_names(config)
-        if not self._has_report_access(member, allowed_role_names):
+        report_channel_name = config.get("report", {}).get("channel")
+        allowed_role_names = _shared.allowed_role_names(config, report_channel_name)
+        if not _shared.has_access(member, allowed_role_names):
             await interaction.response.send_message(
                 "Команда доступна только Главе отряда, Офицеру или выше.", ephemeral=True
             )
             return
 
-        report_channel_name = config.get("report", {}).get("channel")
         target_channel = discord.utils.get(guild.text_channels, name=report_channel_name)
         if target_channel is None:
             await interaction.response.send_message(
