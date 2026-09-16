@@ -12,7 +12,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("rnb_wardogs")
 
-COGS = ["cogs.provisioning"]
+COGS = ["cogs.provisioning", "cogs.report"]
 
 intents = discord.Intents.default()
 
