@@ -20,7 +20,7 @@ SQUAD_SLUGS = {role_name: label.lower() for label, role_name in _shared.SQUADS}
 
 
 class OpRsvpView(discord.ui.View):
-    """Persistent (survives restarts, one shared custom_id) 'Иду' button.
+    """Persistent (survives restarts, one shared custom_id) 'Иду' toggle button.
 
     Deliberately stateless: the participant list lives only in the message's
     own embed field, not in a separate in-memory dict — so there's nothing to
@@ -44,11 +44,11 @@ class OpRsvpView(discord.ui.View):
 
         mention = interaction.user.mention
         if mention in mentions:
-            await interaction.response.send_message("Ты уже в списке участников.", ephemeral=True)
-            return
+            mentions.remove(mention)  # повторный клик — выйти из списка (toggle off)
+        else:
+            mentions.append(mention)
 
-        mentions.append(mention)
-        value = "\n".join(mentions)[:1024]
+        value = "\n".join(mentions)[:1024] if mentions else "—"
         name = f"Участники ({len(mentions)})"
 
         if field_index is not None:
