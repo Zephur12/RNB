@@ -117,11 +117,16 @@ class Provisioning(commands.Cog):
     ) -> None:
         for cat_cfg in categories_config:
             cat_name = cat_cfg["name"]
+            cat_restricted_to = cat_cfg.get("restricted_to")
+            cat_overwrites = self._build_overwrites(guild, cat_restricted_to, roles_by_name, failed, cat_name)
+
             category = discord.utils.get(guild.categories, name=cat_name)
 
             if category is None:
                 try:
-                    category = await guild.create_category(cat_name, reason="РНБ /setup-server")
+                    category = await guild.create_category(
+                        cat_name, overwrites=cat_overwrites, reason="РНБ /setup-server"
+                    )
                     created.append(f"Категория «{cat_name}»")
                 except discord.Forbidden:
                     failed.append(f"Категория «{cat_name}» — нет прав (Forbidden)")
@@ -131,6 +136,23 @@ class Provisioning(commands.Cog):
                     continue
             else:
                 existed.append(f"Категория «{cat_name}»")
+                # setup-server никогда не трогает существующие КАНАЛЫ, но права
+                # существующих КАТЕГОРИЙ синхронизирует — иначе правка
+                # restricted_to в конфиге никогда бы не долетала до уже
+                # созданных категорий (создание — разовое, а не идемпотентная
+                # проверка прав). Трогаем только когда restricted_to реально
+                # задан в конфиге — категории без него (например "НАЧАЛО")
+                # не трогаем, что бы на них ни настроили руками.
+                if cat_restricted_to and category.overwrites != cat_overwrites:
+                    try:
+                        await category.edit(
+                            overwrites=cat_overwrites, reason="РНБ /setup-server: синхронизация прав категории"
+                        )
+                        existed[-1] += " — права обновлены"
+                    except discord.Forbidden:
+                        failed.append(f"Категория «{cat_name}»: не удалось обновить права (Forbidden)")
+                    except discord.HTTPException as exc:
+                        failed.append(f"Категория «{cat_name}»: ошибка обновления прав: {exc}")
 
             for chan_cfg in cat_cfg.get("channels", []):
                 await self._ensure_channel(guild, category, chan_cfg, roles_by_name, created, existed, failed)

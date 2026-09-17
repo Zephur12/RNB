@@ -54,28 +54,50 @@ roles:
 
 categories:
   - name: "📜 НАЧАЛО / START HERE"
+    # Единственная категория, открытая @everyone — это "передняя дверь"
+    # сервера. Всё остальное закрыто до выбора отряда (см. restricted_to
+    # ниже) — /post-onboarding и кнопки отряда это и открывают.
     channels:
       - {name: "правила-verification", type: text}
   - name: "📢 ШТАБ / HQ"
+    restricted_to: &member_roles
+      - "Штурм | Assault"
+      - "Логистика | Logistics"
+      - "Разведка | Recon"
+      - "Транспорт | Transport"
+      - "Поддержка | Support"
+      - "Боец | Trooper"
+      - "Глава отряда | Squad Lead"
+      - "Офицер | Officer"
+      - "Верховный Главнокомандующий | Supreme Commander"
     channels:
       - {name: "объявления-announcements", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
       - {name: "💬-болталка-chat", type: text}
   - name: "🎯 ОПЕРАЦИИ / OPERATIONS"
+    restricted_to: *member_roles
     channels:
       - {name: "сбор-на-операцию", type: text}
       - {name: "карта-и-счёт", type: text, restricted_to: ["Глава отряда | Squad Lead", "Офицер | Officer", "Верховный Главнокомандующий | Supreme Commander"]}
   - name: "🎯 АКТИВНЫЕ ОПЕРАЦИИ"
     dynamic: true  # содержимое управляется /start-op, /sync-server никогда не трогает каналы внутри
+    restricted_to: *member_roles
     channels: []  # временные пары текст+голос создаёт /start-op (bot/cogs/ops.py)
   - name: "🎬 КОНТЕНТ / CONTENT"
+    restricted_to: *member_roles
     channels:
       - {name: "хайлайты-highlights", type: text}
       - {name: "ютуб-канал-youtube", type: text}
       - {name: "тактика-обсуждение", type: text}
   - name: "🛠 ТЕХНИЧЕСКОЕ / TECH"
+    restricted_to: *member_roles
     channels:
       - {name: "обратная-связь", type: text}
   - name: "🔒 ШТАБ ОФИЦЕРОВ"
+    # Уже, чем member_roles — категория видна только офицерскому уровню,
+    # не всем участникам с отрядом/рангом. Каналы внутри и так были
+    # ограничены тем же списком индивидуально — теперь категория с ними
+    # согласована, а не открыта всем по умолчанию.
+    restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]
     channels:
       - {name: "офицерский-стол", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
       - {name: "модерация", type: text, restricted_to: ["Офицер | Officer", "Глава отряда | Squad Lead", "Верховный Главнокомандующий | Supreme Commander"]}
