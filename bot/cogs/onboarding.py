@@ -13,6 +13,57 @@ log = logging.getLogger("rnb_wardogs.onboarding")
 
 RECRUIT_ROLE_NAME = "Новобранец | Recruit"
 ONBOARDING_CHANNEL_NAME = "правила-verification"
+OPS_ANNOUNCE_CHANNEL_NAME = "сбор-на-операцию"
+TACTICS_CHANNEL_NAME = "тактика-обсуждение"
+
+SQUAD_DESCRIPTIONS = [
+    ("⚔️ Штурм | Assault", "первая линия, берёт и держит точки"),
+    ("📦 Логистика | Logistics", "снабжение, чтобы штурм не остался без ресурсов"),
+    ("🔍 Разведка | Recon", "идёт впереди, докладывает обстановку"),
+    ("🚚 Транспорт | Transport", "перевозит людей и технику по вызову"),
+    ("🛠 Поддержка | Support", "прикрывает отход, огневая поддержка"),
+]
+
+
+def _channel_ref(guild: discord.Guild, name: str) -> str:
+    channel = discord.utils.get(guild.text_channels, name=_shared.normalize_channel_name(name))
+    return channel.mention if channel is not None else f"#{name}"
+
+
+def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
+    ops_ref = _channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
+    tactics_ref = _channel_ref(guild, TACTICS_CHANNEL_NAME)
+
+    embed = discord.Embed(
+        title="🐺 Добро пожаловать в РНБ",
+        description=(
+            "Клан синих (Lonestar) в WarDogs. Играем осознанно за тех, кого обычно "
+            "недооценивают — с реальной координацией вместо хаоса.\n\n"
+            "**Твой путь дальше — 3 шага:**\n"
+            "1️⃣ Выбери отряд ниже (30 сек)\n"
+            f"2️⃣ Загляни в {ops_ref} — там анонсы ближайших игр, жми «✅ Иду»\n"
+            "3️⃣ В назначенное время — голосовой канал операции, дальше вместе в саму игру"
+        ),
+        color=discord.Color.blurple(),
+    )
+    for name, desc in SQUAD_DESCRIPTIONS:
+        embed.add_field(name=name, value=desc, inline=False)
+
+    embed.add_field(
+        name="Не уверен, что выбрать?",
+        value=(
+            "Разведка и Логистика — хороший старт, если WarDogs для тебя новая игра "
+            "(учишь карту без давления первой линии). Штурм — если уже есть опыт в тактических "
+            "шутерах (Arma, Tarkov, Squad и т.п.) и хочешь сразу в бой."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📚 Хочешь знать больше?",
+        value=f"Тактика клана подробно — в {tactics_ref}, необязательно читать сейчас.",
+        inline=False,
+    )
+    return embed
 
 
 class SquadButton(discord.ui.Button):
@@ -60,7 +111,11 @@ class SquadButton(discord.ui.Button):
             )
             return
 
-        await interaction.response.send_message(f"Готово — теперь ты в «{self.label}».", ephemeral=True)
+        ops_ref = _channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
+        await interaction.response.send_message(
+            f"Готово, ты в отряде «{self.label}»! Теперь загляни в {ops_ref} — там объявляются ближайшие игры.",
+            ephemeral=True,
+        )
 
 
 class SquadPickView(discord.ui.View):
@@ -114,15 +169,7 @@ class Onboarding(commands.Cog):
             )
             return
 
-        embed = discord.Embed(
-            title="Выбери отряд",
-            description=(
-                "Нажми на кнопку своего отряда ниже. Если уже выбирал раньше — старая отрядная роль "
-                "снимется автоматически, останется только новая.\n\n"
-                "Не уверен, что выбрать? Загляни в #тактика-обсуждение или спроси Офицера."
-            ),
-            color=discord.Color.blurple(),
-        )
+        embed = _build_welcome_embed(guild)
 
         await interaction.response.defer(thinking=True, ephemeral=True)
 
