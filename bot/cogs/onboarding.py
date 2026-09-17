@@ -15,6 +15,10 @@ RECRUIT_ROLE_NAME = "Новобранец | Recruit"
 ONBOARDING_CHANNEL_NAME = "правила-verification"
 OPS_ANNOUNCE_CHANNEL_NAME = "сбор-на-операцию"
 TACTICS_CHANNEL_NAME = "тактика-обсуждение"
+CHAT_CHANNEL_NAME = "💬-болталка-chat"
+
+WELCOME_EMBED_TITLE = "🐺 Добро пожаловать в РНБ"
+OPS_EXPLAINER_TITLE = "📋 Как здесь появляются операции"
 
 SQUAD_DESCRIPTIONS = [
     ("⚔️ Штурм | Assault", "первая линия, берёт и держит точки"),
@@ -35,7 +39,7 @@ def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
     tactics_ref = _channel_ref(guild, TACTICS_CHANNEL_NAME)
 
     embed = discord.Embed(
-        title="🐺 Добро пожаловать в РНБ",
+        title=WELCOME_EMBED_TITLE,
         description=(
             "Клан синих (Lonestar) в WarDogs. Играем осознанно за тех, кого обычно "
             "недооценивают — с реальной координацией вместо хаоса.\n\n"
@@ -64,6 +68,34 @@ def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
         inline=False,
     )
     return embed
+
+
+def _build_ops_explainer_embed(guild: discord.Guild) -> discord.Embed:
+    chat_ref = _channel_ref(guild, CHAT_CHANNEL_NAME)
+    return discord.Embed(
+        title=OPS_EXPLAINER_TITLE,
+        description=(
+            "Здесь появляются анонсы операций — их создают Главы отрядов/Офицеры через `/start-op`.\n\n"
+            f"Если сейчас пусто — операция ещё не назначена, загляни позже или спроси в {chat_ref}.\n\n"
+            "Конкретный сервер/регион WarDogs объявляется в каждом анонсе отдельно — фиксированного "
+            "постоянного сервера у нас пока нет."
+        ),
+        color=discord.Color.blurple(),
+    )
+
+
+async def _replace_pinned_by(channel: discord.TextChannel, *, marker_title: str, **send_kwargs) -> discord.Message:
+    """Delete any previous bot message in `channel` whose embed title matches
+    `marker_title`, then post+pin a new one — so re-running /post-onboarding
+    updates in place instead of accumulating duplicate pinned messages."""
+    async for old in channel.pins():
+        if old.author.bot and old.embeds and old.embeds[0].title == marker_title:
+            await old.unpin(reason="РНБ /post-onboarding: обновление")
+            await old.delete()
+
+    message = await channel.send(**send_kwargs)
+    await message.pin(reason="РНБ /post-onboarding")
+    return message
 
 
 class SquadButton(discord.ui.Button):
@@ -111,11 +143,29 @@ class SquadButton(discord.ui.Button):
             )
             return
 
-        ops_ref = _channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
-        await interaction.response.send_message(
-            f"Готово, ты в отряде «{self.label}»! Теперь загляни в {ops_ref} — там объявляются ближайшие игры.",
-            ephemeral=True,
+        ops_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(OPS_ANNOUNCE_CHANNEL_NAME)
         )
+        if ops_channel is not None:
+            link_view = discord.ui.View()
+            link_view.add_item(
+                discord.ui.Button(
+                    style=discord.ButtonStyle.link,
+                    url=ops_channel.jump_url,
+                    label="→ Перейти в сбор-на-операцию",
+                )
+            )
+            await interaction.response.send_message(
+                f"Готово, ты в отряде «{self.label}»! Там объявляются ближайшие игры:",
+                view=link_view,
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"Готово, ты в отряде «{self.label}»! Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — "
+                "попроси Офицера прогнать `/setup-server`.",
+                ephemeral=True,
+            )
 
 
 class SquadPickView(discord.ui.View):
@@ -134,7 +184,7 @@ class Onboarding(commands.Cog):
 
     @app_commands.command(
         name="post-onboarding",
-        description="Запостить закреплённое сообщение с выбором отряда в #правила-verification. Officer+.",
+        description="Обновить онбординг и explainer операций (закреплённые сообщения). Officer+.",
     )
     async def post_onboarding(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
@@ -169,27 +219,50 @@ class Onboarding(commands.Cog):
             )
             return
 
-        embed = _build_welcome_embed(guild)
-
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         try:
-            message = await target_channel.send(embed=embed, view=SquadPickView())
+            await _replace_pinned_by(
+                target_channel,
+                marker_title=WELCOME_EMBED_TITLE,
+                embed=_build_welcome_embed(guild),
+                view=SquadPickView(),
+            )
         except discord.Forbidden:
-            await interaction.followup.send(f"Нет прав постить в {target_channel.mention} (Forbidden).", ephemeral=True)
-            return
-
-        try:
-            await message.pin(reason="РНБ /post-onboarding")
-        except discord.HTTPException as exc:
             await interaction.followup.send(
-                f"Сообщение опубликовано в {target_channel.mention}, но не удалось закрепить: `{exc}` "
-                "(например, в канале уже 50 закреплённых).",
-                ephemeral=True,
+                f"Нет прав постить/закреплять в {target_channel.mention} (Forbidden).", ephemeral=True
             )
             return
+        except discord.HTTPException as exc:
+            await interaction.followup.send(f"Ошибка при публикации в {target_channel.mention}: `{exc}`", ephemeral=True)
+            return
 
-        await interaction.followup.send(f"Опубликовано и закреплено в {target_channel.mention}.", ephemeral=True)
+        results = [f"Опубликовано и закреплено в {target_channel.mention}."]
+
+        ops_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(OPS_ANNOUNCE_CHANNEL_NAME)
+        )
+        if ops_channel is None:
+            results.append(f"⚠️ Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — explainer туда не запощен.")
+        else:
+            try:
+                await _replace_pinned_by(
+                    ops_channel, marker_title=OPS_EXPLAINER_TITLE, embed=_build_ops_explainer_embed(guild)
+                )
+                results.append(f"Explainer опубликован и закреплён в {ops_channel.mention}.")
+            except discord.HTTPException as exc:
+                results.append(f"⚠️ Не удалось опубликовать explainer в {ops_channel.mention}: `{exc}`")
+
+        await interaction.followup.send("\n".join(results), ephemeral=True)
+
+    @post_onboarding.error
+    async def post_onboarding_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+        log.exception("Ошибка в /post-onboarding", exc_info=error)
+        message = f"Непредвиденная ошибка: `{error}`"
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
