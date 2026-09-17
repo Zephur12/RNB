@@ -46,11 +46,6 @@ STATUS_COLOR = {
 }
 
 
-def _load_config() -> dict:
-    with CONFIG_PATH.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
 class Report(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot

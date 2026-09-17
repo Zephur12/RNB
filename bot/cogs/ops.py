@@ -15,27 +15,55 @@ from . import _shared
 
 log = logging.getLogger("rnb_wardogs.ops")
 
-SQUAD_CHOICES = [
-    app_commands.Choice(name="Штурм", value="Штурм | Assault"),
-    app_commands.Choice(name="Логистика", value="Логистика | Logistics"),
-    app_commands.Choice(name="Разведка", value="Разведка | Recon"),
-    app_commands.Choice(name="Транспорт", value="Транспорт | Transport"),
-    app_commands.Choice(name="Поддержка", value="Поддержка | Support"),
-]
+SQUAD_CHOICES = [app_commands.Choice(name=label, value=role_name) for label, role_name in _shared.SQUADS]
+SQUAD_SLUGS = {role_name: label.lower() for label, role_name in _shared.SQUADS}
 
-SQUAD_SLUGS = {
-    "Штурм | Assault": "штурм",
-    "Логистика | Logistics": "логистика",
-    "Разведка | Recon": "разведка",
-    "Транспорт | Transport": "транспорт",
-    "Поддержка | Support": "поддержка",
-}
+
+class OpRsvpView(discord.ui.View):
+    """Persistent (survives restarts, one shared custom_id) 'Иду' button.
+
+    Deliberately stateless: the participant list lives only in the message's
+    own embed field, not in a separate in-memory dict — so there's nothing to
+    lose on a bot restart, at the cost of not knowing who clicked beyond
+    what's already rendered.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="✅ Иду", style=discord.ButtonStyle.success, custom_id="rnb:op_rsvp")
+    async def rsvp(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.message is None or not interaction.message.embeds:
+            await interaction.response.send_message("Не удалось найти анонс операции.", ephemeral=True)
+            return
+
+        embed = interaction.message.embeds[0]
+        field_index = next((i for i, f in enumerate(embed.fields) if f.name.startswith("Участники")), None)
+        current = embed.fields[field_index].value if field_index is not None else "—"
+        mentions = [] if current == "—" else current.split("\n")
+
+        mention = interaction.user.mention
+        if mention in mentions:
+            await interaction.response.send_message("Ты уже в списке участников.", ephemeral=True)
+            return
+
+        mentions.append(mention)
+        value = "\n".join(mentions)[:1024]
+        name = f"Участники ({len(mentions)})"
+
+        if field_index is not None:
+            embed.set_field_at(field_index, name=name, value=value, inline=False)
+        else:
+            embed.add_field(name=name, value=value, inline=False)
+
+        await interaction.response.edit_message(embed=embed)
 
 
 class Ops(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self._active_watchers: dict[str, asyncio.Task] = {}
+        self.bot.add_view(OpRsvpView())
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -105,6 +133,7 @@ class Ops(commands.Cog):
 
     @app_commands.command(name="start-op", description="Начать операцию: создать временные каналы сбора")
     @app_commands.describe(
+        server="Игровой сервер: регион + номер, например 'EU 3' или 'NA 12'",
         squad="Отряд (опционально)",
         map="Карта (опционально)",
         note="Заметка, например время сбора",
@@ -113,6 +142,7 @@ class Ops(commands.Cog):
     async def start_op(
         self,
         interaction: discord.Interaction,
+        server: str,
         squad: Optional[app_commands.Choice[str]] = None,
         map: Optional[str] = None,
         note: Optional[str] = None,
@@ -183,6 +213,7 @@ class Ops(commands.Cog):
             color=discord.Color.blurple(),
             timestamp=datetime.now(timezone.utc),
         )
+        embed.add_field(name="Сервер", value=server, inline=True)
         embed.add_field(name="Отряд", value=squad.name if squad else "Сборная / без отряда", inline=True)
         embed.add_field(name="Карта", value=map or "—", inline=True)
         if note:
@@ -192,11 +223,12 @@ class Ops(commands.Cog):
             value=f"💬 {text_channel.mention}\n🔊 {voice_channel.mention}",
             inline=False,
         )
+        embed.add_field(name="Участники (0)", value="—", inline=False)
         embed.set_footer(text=f"Начал: {member.display_name}", icon_url=member.display_avatar.url)
 
         content = squad_role.mention if squad_role else None
         try:
-            await announce_channel.send(content=content, embed=embed)
+            await announce_channel.send(content=content, embed=embed, view=OpRsvpView())
         except discord.Forbidden:
             log.warning("Нет прав постить анонс операции в «%s»", announce_channel_name)
 

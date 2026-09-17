@@ -12,7 +12,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("rnb_wardogs")
 
-COGS = ["cogs.provisioning", "cogs.report", "cogs.translate", "cogs.ops"]
+COGS = ["cogs.provisioning", "cogs.report", "cogs.translate", "cogs.ops", "cogs.onboarding", "cogs.stats"]
 
 intents = discord.Intents.default()
 intents.message_content = True

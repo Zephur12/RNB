@@ -2,3 +2,8 @@ discord.py>=2.4
 python-dotenv>=1.0
 PyYAML>=6.0
 deep-translator>=1.11
+PyNaCl>=1.5  # не используется production-кодом бота; нужен только для реального
+             # voice-подключения в тестах авто-очистки /start-op (без него
+             # discord.py не даст боту зайти в голосовой канал вообще)
+davey>=0.1   # то же: discord.py 2.7+ требует его для VoiceClient.connect()
+             # (E2EE voice protocol), даже без PyNaCl-шифрования старого стиля

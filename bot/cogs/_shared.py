@@ -10,6 +10,17 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "server_struct
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
+# Single source of truth for the 5 squads: (short label, full bilingual role
+# name). Used by ops.py (/start-op choices + slugs) and onboarding.py (squad
+# picker buttons) — was duplicated between them, now isn't.
+SQUADS: list[tuple[str, str]] = [
+    ("Штурм", "Штурм | Assault"),
+    ("Логистика", "Логистика | Logistics"),
+    ("Разведка", "Разведка | Recon"),
+    ("Транспорт", "Транспорт | Transport"),
+    ("Поддержка", "Поддержка | Support"),
+]
+
 
 def load_config() -> dict:
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
