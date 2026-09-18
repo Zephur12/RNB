@@ -12,6 +12,7 @@ from . import _shared, ops, promotion
 log = logging.getLogger("rnb_wardogs.onboarding")
 
 RECRUIT_ROLE_NAME = "Новобранец | Recruit"
+BOETS_ROLE_NAME = "Боец | Trooper"
 CONTRACT_CHANNEL_NAME = "📝-контракт"
 ONBOARDING_CHANNEL_NAME = "правила-verification"
 GUIDE_CHANNEL_NAME = "🪖-путеводитель-по-рангам"
@@ -55,12 +56,12 @@ def _build_guide_embed(guild: discord.Guild) -> discord.Embed:
     embed = discord.Embed(
         title=GUIDE_EMBED_TITLE,
         description=(
-            "**Новобранец** — стартовая роль после выбора отряда. Испытательный срок: показать, что "
-            "тебе можно доверять место в отряде — слушаешь команды в бою, появляешься на операциях, "
-            "не токсичен в чате/голосе. Формального списка галочек нет — Глава отряда, с которым ты "
-            "играл, должен быть готов сказать «беру его в состав всерьёз».\n\n"
+            "**Новобранец** — метка на момент выбора отряда, держится секунды: сразу же автоматически "
+            "становится «Боец», без ручного решения кого-либо.\n\n"
             "**Боец** — полноправный участник клана. Основа состава, полный доступ ко всем открытым "
-            "каналам.\n\n"
+            "каналам. Дальше — уже не автоматика: показать, что тебе можно доверять больше, чем "
+            "стартовый доступ — слушаешь команды в бою, появляешься на операциях, не токсичен в "
+            "чате/голосе.\n\n"
             "**Глава отряда** — не выбирается голосованием и не выдаётся по стажу. Назначается за то, "
             "что человек уже делает на практике: держит связь в бою, не теряется, когда что-то идёт "
             "не по плану, за ним реально готовы идти. Решение — за Офицерами/ВГК.\n\n"
@@ -213,6 +214,15 @@ class SquadButton(discord.ui.Button):
                 await member.remove_roles(*previous_squad_roles, reason="РНБ: смена отряда")
             if roles_to_add:
                 await member.add_roles(*roles_to_add, reason="РНБ: выбор отряда")
+            # Новобранец -> Боец выдаётся сразу по завершении онбординга, без
+            # ручного решения Офицера/Главы отряда — испытательный срок с
+            # доверием начинается ТОЛЬКО с Боец -> Глава отряда и выше (см.
+            # путеводитель по рангам). Только на первом выборе отряда — при
+            # смене отряда позже ранг уже не трогаем.
+            if is_first_squad:
+                await promotion.grant_rank(
+                    member, BOETS_ROLE_NAME, reason="РНБ: автоповышение после завершения онбординга"
+                )
         except discord.Forbidden:
             await interaction.response.send_message(
                 "Не хватает прав выдать/снять роль — проверь, что роль бота стоит ВЫШЕ ролей отрядов "
@@ -221,6 +231,7 @@ class SquadButton(discord.ui.Button):
             )
             return
 
+        rank_note = " Ранг: **Боец**." if is_first_squad else ""
         ops_channel = discord.utils.get(
             guild.text_channels, name=_shared.normalize_channel_name(OPS_ANNOUNCE_CHANNEL_NAME)
         )
@@ -234,13 +245,13 @@ class SquadButton(discord.ui.Button):
                 )
             )
             await interaction.response.send_message(
-                f"Готово — ты в отряде «{self.label}»! Там объявляются ближайшие игры:",
+                f"Готово — ты в отряде «{self.label}»!{rank_note} Там объявляются ближайшие игры:",
                 view=link_view,
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                f"Готово — ты в отряде «{self.label}»! Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — "
+                f"Готово — ты в отряде «{self.label}»!{rank_note} Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — "
                 "попроси Офицера прогнать `/setup-server`.",
                 ephemeral=True,
             )
@@ -253,7 +264,9 @@ class SquadButton(discord.ui.Button):
             )
             if chat_channel is not None:
                 try:
-                    await chat_channel.send(f"🎉 Добро пожаловать в РНБ, {member.mention}! Отряд: **{self.label}**.")
+                    await chat_channel.send(
+                        f"🎉 Добро пожаловать в РНБ, {member.mention}! Отряд: **{self.label}**. Ранг: **Боец**."
+                    )
                 except discord.Forbidden:
                     pass
 

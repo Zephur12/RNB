@@ -42,6 +42,24 @@ def _higher_ranks_for(member: discord.Member) -> list[str]:
     return RANK_HIERARCHY[current_index + 1 :]
 
 
+async def grant_rank(member: discord.Member, new_rank_name: str, *, reason: str) -> discord.Role | None:
+    """Strip whichever RANK_HIERARCHY role `member` currently holds (if any)
+    and grant `new_rank_name` instead. Returns the new Role, or None if that
+    rank doesn't exist on the server (config drift — caller decides how to
+    report it). Not module-private (`_`-prefixed) — onboarding.py calls this
+    too, for the automatic Новобранец -> Боец step."""
+    guild = member.guild
+    new_role = discord.utils.get(guild.roles, name=new_rank_name)
+    if new_role is None:
+        return None
+
+    old_rank_roles = [r for r in member.roles if r.name in RANK_HIERARCHY and r != new_role]
+    if old_rank_roles:
+        await member.remove_roles(*old_rank_roles, reason=reason)
+    await member.add_roles(new_role, reason=reason)
+    return new_role
+
+
 class PromoteSelectView(discord.ui.View):
     """Ephemeral, short-lived — one Officer picking one new rank for one
     member. No reason to persist this across a restart."""
@@ -59,23 +77,21 @@ class PromoteSelectView(discord.ui.View):
     async def _on_select(self, interaction: discord.Interaction) -> None:
         new_rank_name = interaction.data["values"][0]
         guild = interaction.guild
-        new_role = discord.utils.get(guild.roles, name=new_rank_name)
-        if new_role is None:
+
+        try:
+            new_role = await grant_rank(
+                self.target, new_rank_name, reason=f"РНБ: повышение до {new_rank_name}"
+            )
+        except discord.Forbidden:
             await interaction.response.send_message(
-                f"Роль «{new_rank_name}» не найдена на сервере. Попроси прогнать `/setup-server`.",
+                "Не хватает прав — роль бота должна быть выше ранговых ролей в списке ролей сервера.",
                 ephemeral=True,
             )
             return
 
-        old_rank_roles = [r for r in self.target.roles if r.name in RANK_HIERARCHY and r != new_role]
-
-        try:
-            if old_rank_roles:
-                await self.target.remove_roles(*old_rank_roles, reason=f"РНБ: повышение до {new_rank_name}")
-            await self.target.add_roles(new_role, reason=f"РНБ: повышение до {new_rank_name}")
-        except discord.Forbidden:
+        if new_role is None:
             await interaction.response.send_message(
-                "Не хватает прав — роль бота должна быть выше ранговых ролей в списке ролей сервера.",
+                f"Роль «{new_rank_name}» не найдена на сервере. Попроси прогнать `/setup-server`.",
                 ephemeral=True,
             )
             return
