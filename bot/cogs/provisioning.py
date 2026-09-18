@@ -210,12 +210,28 @@ class Provisioning(commands.Cog):
         name = _shared.normalize_channel_name(chan_cfg["name"])
         chan_type = CHANNEL_TYPE_MAP.get(chan_cfg.get("type", "text"), discord.ChannelType.text)
 
+        chan_restricted_to = chan_cfg.get("restricted_to")
+        overwrites = self._build_overwrites(guild, chan_restricted_to, roles_by_name, failed, name)
+
         existing = discord.utils.get(category.channels, name=name)
         if existing is not None:
             existed.append(f"Канал «{name}»")
+            # Как и с категориями/ролями — если у канала в конфиге задан
+            # restricted_to, сверяем его с уже существующим на сервере при
+            # КАЖДОМ запуске, не только при создании. Без этого правка
+            # restricted_to для уже существующего канала (например, когда
+            # раньше открытый канал нужно закрыть) никогда бы не долетала.
+            if chan_restricted_to and existing.overwrites != overwrites:
+                try:
+                    await existing.edit(
+                        overwrites=overwrites, reason="РНБ /setup-server: синхронизация прав канала"
+                    )
+                    existed[-1] += " — права обновлены"
+                except discord.Forbidden:
+                    failed.append(f"Канал «{name}»: не удалось обновить права (Forbidden)")
+                except discord.HTTPException as exc:
+                    failed.append(f"Канал «{name}»: ошибка обновления прав: {exc}")
             return
-
-        overwrites = self._build_overwrites(guild, chan_cfg.get("restricted_to"), roles_by_name, failed, name)
 
         try:
             if chan_type == discord.ChannelType.voice:

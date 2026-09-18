@@ -62,18 +62,6 @@ def channel_ref(guild: discord.Guild, name: str) -> str:
     return channel.mention if channel is not None else f"#{name}"
 
 
-async def find_pinned_by_title(channel, title: str):
-    """Find a bot-authored pinned message in `channel` whose embed title
-    matches, e.g. to cross-link one onboarding step to another. Returns None
-    if `channel` is None or nothing matches."""
-    if channel is None:
-        return None
-    async for msg in channel.pins():
-        if msg.author.bot and msg.embeds and msg.embeds[0].title == title:
-            return msg
-    return None
-
-
 async def replace_pinned_by(channel, *, marker_title: str, **send_kwargs):
     """Delete any previous bot message in `channel` whose embed title matches
     `marker_title`, then post+pin a new one — so re-running a content-posting

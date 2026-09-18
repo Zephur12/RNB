@@ -59,11 +59,16 @@ roles:
 
 categories:
   - name: "📜 ПРИВЕТСТВИЕ"
-    # Единственная категория, открытая @everyone — это "передняя дверь"
-    # сервера. Всё остальное закрыто до выбора отряда (см. restricted_to
-    # ниже) — /post-onboarding и кнопки отряда это и открывают.
+    # Категория сама открыта @everyone, но внутри — прогрессивное
+    # раскрытие ПО КАНАЛАМ, не по пинам в одном канале: новый участник
+    # видит только "✍️-контракт" (без restricted_to), остальные два
+    # канала появляются в списке сами, как только выдана роль
+    # "Новобранец | Recruit" (см. restricted_to у них) — не "видно, но
+    # заблокировано", а буквально отсутствуют, пока не заработано.
     channels:
-      - {name: "правила-verification", type: text}
+      - {name: "📝-контракт", type: text}
+      - {name: "правила-verification", type: text, restricted_to: &recruit_and_up ["Новобранец | Recruit", "Штурм | Assault", "Логистика | Logistics", "Разведка | Recon", "Транспорт | Transport", "Поддержка | Support", "Боец | Trooper", "Глава отряда | Squad Lead", "Офицер | Officer", "Верховный Главнокомандующий | Supreme Commander"]}
+      - {name: "🪖-путеводитель-по-рангам", type: text, restricted_to: *recruit_and_up}
   - name: "📢 ШТАБ / HQ"
     restricted_to: &member_roles
       - "Штурм | Assault"
