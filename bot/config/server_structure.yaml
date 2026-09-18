@@ -51,9 +51,13 @@ roles:
   - name: "Поддержка | Support"
     color: "#27ae60"
     hoist: false
+  - name: "🎮 Готов играть сейчас"
+    color: "#43b581"
+    hoist: false
+    mentionable: true  # чтобы Боец+ мог пинговать её в сбор-на-операцию под внеплановый созвон
 
 categories:
-  - name: "📜 НАЧАЛО / START HERE"
+  - name: "📜 ПРИВЕТСТВИЕ"
     # Единственная категория, открытая @everyone — это "передняя дверь"
     # сервера. Всё остальное закрыто до выбора отряда (см. restricted_to
     # ниже) — /post-onboarding и кнопки отряда это и открывают.
@@ -85,9 +89,9 @@ categories:
   - name: "🎬 КОНТЕНТ / CONTENT"
     restricted_to: *member_roles
     channels:
-      - {name: "хайлайты-highlights", type: text}
+      - {name: "хайлайты-highlights", type: forum}
       - {name: "ютуб-канал-youtube", type: text}
-      - {name: "тактика-обсуждение", type: text}
+      - {name: "тактика-обсуждение", type: forum}
   - name: "🛠 ТЕХНИЧЕСКОЕ / TECH"
     restricted_to: *member_roles
     channels:
