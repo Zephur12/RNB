@@ -7,17 +7,18 @@ import yaml
 from discord import app_commands
 from discord.ext import commands
 
-from . import _shared
+from . import _shared, ops
 
 log = logging.getLogger("rnb_wardogs.onboarding")
 
 RECRUIT_ROLE_NAME = "Новобранец | Recruit"
+READY_ROLE_NAME = "🎮 Готов играть сейчас"
 ONBOARDING_CHANNEL_NAME = "правила-verification"
 OPS_ANNOUNCE_CHANNEL_NAME = "сбор-на-операцию"
 TACTICS_CHANNEL_NAME = "тактика-обсуждение"
 CHAT_CHANNEL_NAME = "💬-болталка-chat"
 
-WELCOME_EMBED_TITLE = "🐺 Добро пожаловать в РНБ"
+WELCOME_EMBED_TITLE = "📜 Контракт РНБ"
 OPS_EXPLAINER_TITLE = "📋 Как здесь появляются операции"
 
 SQUAD_DESCRIPTIONS = [
@@ -29,22 +30,20 @@ SQUAD_DESCRIPTIONS = [
 ]
 
 
-def _channel_ref(guild: discord.Guild, name: str) -> str:
-    channel = discord.utils.get(guild.text_channels, name=_shared.normalize_channel_name(name))
-    return channel.mention if channel is not None else f"#{name}"
-
-
 def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
-    ops_ref = _channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
-    tactics_ref = _channel_ref(guild, TACTICS_CHANNEL_NAME)
+    ops_ref = _shared.channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
+    tactics_ref = _shared.channel_ref(guild, TACTICS_CHANNEL_NAME)
 
     embed = discord.Embed(
         title=WELCOME_EMBED_TITLE,
         description=(
-            "Клан синих (Lonestar) в WarDogs. Играем осознанно за тех, кого обычно "
-            "недооценивают — с реальной координацией вместо хаоса.\n\n"
-            "**Твой путь дальше — 3 шага:**\n"
-            "1️⃣ Выбери отряд ниже (30 сек)\n"
+            "Клан синих (Lonestar) в WarDogs. Нажатием кнопки отряда ниже ты ставишь подпись "
+            "под этим контрактом:\n"
+            "— слушаешь приказы своего Главы отряда на операции;\n"
+            "— не сливаешь стратегию клана посторонним;\n"
+            "— уважаешь остальных, даже когда не согласен.\n\n"
+            "Полные условия — в закреплённых правилах выше. Дальше — 3 шага:\n"
+            "1️⃣ Выбери отряд и подпишись (30 сек)\n"
             f"2️⃣ Загляни в {ops_ref} — там анонсы ближайших игр, жми «✅ Иду»\n"
             "3️⃣ В назначенное время — голосовой канал операции, дальше вместе в саму игру"
         ),
@@ -71,31 +70,18 @@ def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
 
 
 def _build_ops_explainer_embed(guild: discord.Guild) -> discord.Embed:
-    chat_ref = _channel_ref(guild, CHAT_CHANNEL_NAME)
+    chat_ref = _shared.channel_ref(guild, CHAT_CHANNEL_NAME)
     return discord.Embed(
         title=OPS_EXPLAINER_TITLE,
         description=(
-            "Здесь появляются анонсы операций — их создают Главы отрядов/Офицеры через `/start-op`.\n\n"
+            "Здесь появляются анонсы операций — их создают Главы отрядов/Офицеры кнопкой "
+            "«🚀 Начать операцию» под этим сообщением.\n\n"
             f"Если сейчас пусто — операция ещё не назначена, загляни позже или спроси в {chat_ref}.\n\n"
-            "Конкретный сервер/регион WarDogs объявляется в каждом анонсе отдельно — фиксированного "
-            "постоянного сервера у нас пока нет."
+            "Конкретный игровой сервер объявляется в каждом анонсе отдельно (Server ID) — "
+            "фиксированного постоянного сервера у нас пока нет."
         ),
         color=discord.Color.blurple(),
     )
-
-
-async def _replace_pinned_by(channel: discord.TextChannel, *, marker_title: str, **send_kwargs) -> discord.Message:
-    """Delete any previous bot message in `channel` whose embed title matches
-    `marker_title`, then post+pin a new one — so re-running /post-onboarding
-    updates in place instead of accumulating duplicate pinned messages."""
-    async for old in channel.pins():
-        if old.author.bot and old.embeds and old.embeds[0].title == marker_title:
-            await old.unpin(reason="РНБ /post-onboarding: обновление")
-            await old.delete()
-
-    message = await channel.send(**send_kwargs)
-    await message.pin(reason="РНБ /post-onboarding")
-    return message
 
 
 class SquadButton(discord.ui.Button):
@@ -156,15 +142,58 @@ class SquadButton(discord.ui.Button):
                 )
             )
             await interaction.response.send_message(
-                f"Готово, ты в отряде «{self.label}»! Там объявляются ближайшие игры:",
+                f"Подпись принята — ты в отряде «{self.label}»! Там объявляются ближайшие игры:",
                 view=link_view,
                 ephemeral=True,
             )
         else:
             await interaction.response.send_message(
-                f"Готово, ты в отряде «{self.label}»! Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — "
+                f"Подпись принята — ты в отряде «{self.label}»! Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — "
                 "попроси Офицера прогнать `/setup-server`.",
                 ephemeral=True,
+            )
+
+
+class ReadyToggleButton(discord.ui.Button):
+    """Standalone toggle, unrelated to squad choice — just marks 'available to
+    play right now' so others can @-mention the role in #сбор-на-операцию for
+    an impromptu game, separate from the planned /start-op flow."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            label=READY_ROLE_NAME,
+            style=discord.ButtonStyle.secondary,
+            custom_id="rnb:ready_toggle",
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта кнопка работает только на сервере.", ephemeral=True)
+            return
+
+        role = discord.utils.get(guild.roles, name=READY_ROLE_NAME)
+        if role is None:
+            await interaction.response.send_message(
+                f"Роль «{READY_ROLE_NAME}» не найдена. Попроси Офицера прогнать `/setup-server`.", ephemeral=True
+            )
+            return
+
+        try:
+            if role in member.roles:
+                await member.remove_roles(role, reason="РНБ: снял отметку «готов играть»")
+                await interaction.response.send_message("Убрал отметку «Готов играть сейчас».", ephemeral=True)
+            else:
+                await member.add_roles(role, reason="РНБ: отметил «готов играть»")
+                await interaction.response.send_message(
+                    "Отмечено! Тебя можно позвать пингом в #сбор-на-операцию на внеплановую игру.",
+                    ephemeral=True,
+                )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Не хватает прав — роль бота должна быть выше этой роли в списке ролей сервера.", ephemeral=True
             )
 
 
@@ -175,6 +204,7 @@ class SquadPickView(discord.ui.View):
         super().__init__(timeout=None)
         for label, role_name in _shared.SQUADS:
             self.add_item(SquadButton(label, role_name))
+        self.add_item(ReadyToggleButton())
 
 
 class Onboarding(commands.Cog):
@@ -222,7 +252,7 @@ class Onboarding(commands.Cog):
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         try:
-            await _replace_pinned_by(
+            await _shared.replace_pinned_by(
                 target_channel,
                 marker_title=WELCOME_EMBED_TITLE,
                 embed=_build_welcome_embed(guild),
@@ -246,10 +276,13 @@ class Onboarding(commands.Cog):
             results.append(f"⚠️ Канал «{OPS_ANNOUNCE_CHANNEL_NAME}» не найден — explainer туда не запощен.")
         else:
             try:
-                await _replace_pinned_by(
-                    ops_channel, marker_title=OPS_EXPLAINER_TITLE, embed=_build_ops_explainer_embed(guild)
+                await _shared.replace_pinned_by(
+                    ops_channel,
+                    marker_title=OPS_EXPLAINER_TITLE,
+                    embed=_build_ops_explainer_embed(guild),
+                    view=ops.StartOpEntryView(),
                 )
-                results.append(f"Explainer опубликован и закреплён в {ops_channel.mention}.")
+                results.append(f"Explainer + кнопка «🚀 Начать операцию» — в {ops_channel.mention}.")
             except discord.HTTPException as exc:
                 results.append(f"⚠️ Не удалось опубликовать explainer в {ops_channel.mention}: `{exc}`")
 
