@@ -21,6 +21,8 @@ SQUADS: list[tuple[str, str]] = [
     ("Поддержка", "Поддержка | Support"),
 ]
 
+READY_ROLE_NAME = "🎮 Готов играть сейчас"
+
 
 def load_config() -> dict:
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
@@ -60,6 +62,18 @@ def channel_ref(guild: discord.Guild, name: str) -> str:
     return channel.mention if channel is not None else f"#{name}"
 
 
+async def find_pinned_by_title(channel, title: str):
+    """Find a bot-authored pinned message in `channel` whose embed title
+    matches, e.g. to cross-link one onboarding step to another. Returns None
+    if `channel` is None or nothing matches."""
+    if channel is None:
+        return None
+    async for msg in channel.pins():
+        if msg.author.bot and msg.embeds and msg.embeds[0].title == title:
+            return msg
+    return None
+
+
 async def replace_pinned_by(channel, *, marker_title: str, **send_kwargs):
     """Delete any previous bot message in `channel` whose embed title matches
     `marker_title`, then post+pin a new one — so re-running a content-posting
@@ -91,3 +105,47 @@ async def replace_pinned_thread(forum: discord.ForumChannel, *, marker_title: st
     thread = result.thread
     await thread.edit(pinned=True, reason="РНБ: обновление стартового поста")
     return thread
+
+
+class ReadyToggleButton(discord.ui.Button):
+    """Standalone toggle unrelated to onboarding/squad choice — lives here (not
+    in onboarding.py or ops.py) because both cogs attach it to their own
+    persistent panel, and onboarding.py already imports ops.py, so a
+    definition in either would create a circular import."""
+
+    def __init__(self, *, row: int | None = None) -> None:
+        super().__init__(
+            label=READY_ROLE_NAME,
+            style=discord.ButtonStyle.secondary,
+            custom_id="rnb:ready_toggle",
+            row=row,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта кнопка работает только на сервере.", ephemeral=True)
+            return
+
+        role = discord.utils.get(guild.roles, name=READY_ROLE_NAME)
+        if role is None:
+            await interaction.response.send_message(
+                f"Роль «{READY_ROLE_NAME}» не найдена. Попроси Офицера прогнать `/setup-server`.", ephemeral=True
+            )
+            return
+
+        try:
+            if role in member.roles:
+                await member.remove_roles(role, reason="РНБ: снял отметку «готов играть»")
+                await interaction.response.send_message("Убрал отметку «Готов играть сейчас».", ephemeral=True)
+            else:
+                await member.add_roles(role, reason="РНБ: отметил «готов играть»")
+                await interaction.response.send_message(
+                    "Отмечено! Тебя можно позвать пингом в #сбор-на-операцию на внеплановую игру.",
+                    ephemeral=True,
+                )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "Не хватает прав — роль бота должна быть выше этой роли в списке ролей сервера.", ephemeral=True
+            )

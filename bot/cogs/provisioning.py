@@ -72,6 +72,11 @@ class Provisioning(commands.Cog):
         embed = self._build_report_embed(created, existed, failed)
         await interaction.followup.send(embed=embed)
 
+    @staticmethod
+    def _role_permissions(role_cfg: dict) -> discord.Permissions:
+        perm_names = role_cfg.get("permissions", [])
+        return discord.Permissions(**{name: True for name in perm_names})
+
     async def _ensure_roles(
         self,
         guild: discord.Guild,
@@ -84,19 +89,52 @@ class Provisioning(commands.Cog):
 
         for role_cfg in roles_config:
             name = role_cfg["name"]
-            if name in roles_by_name:
-                existed.append(f"Роль «{name}»")
-                continue
-
             color_hex = role_cfg.get("color")
             color = discord.Color(int(color_hex.lstrip("#"), 16)) if color_hex else discord.Color.default()
+            hoist = bool(role_cfg.get("hoist", False))
+            mentionable = bool(role_cfg.get("mentionable", False))
+            permissions = self._role_permissions(role_cfg)
+
+            existing = roles_by_name.get(name)
+            if existing is not None:
+                # Как и с правами категорий — сверяем с конфигом при КАЖДОМ
+                # запуске, не только при создании. Иначе правка permissions/
+                # hoist/etc. в yaml никогда не долетала бы до уже созданной
+                # роли (ровно на этом уже спотыкались с категориями).
+                # Обратная сторона: если кто-то руками поменял права роли
+                # через Discord UI в обход конфига — следующий /setup-server
+                # это молча перезапишет обратно под конфиг.
+                changed = (
+                    existing.color != color
+                    or existing.hoist != hoist
+                    or existing.mentionable != mentionable
+                    or existing.permissions != permissions
+                )
+                if changed:
+                    try:
+                        await existing.edit(
+                            color=color,
+                            hoist=hoist,
+                            mentionable=mentionable,
+                            permissions=permissions,
+                            reason="РНБ /setup-server: синхронизация роли",
+                        )
+                        existed.append(f"Роль «{name}» — обновлена")
+                    except discord.Forbidden:
+                        failed.append(f"Роль «{name}»: не удалось обновить (Forbidden)")
+                    except discord.HTTPException as exc:
+                        failed.append(f"Роль «{name}»: ошибка обновления: {exc}")
+                else:
+                    existed.append(f"Роль «{name}»")
+                continue
 
             try:
                 role = await guild.create_role(
                     name=name,
                     color=color,
-                    hoist=bool(role_cfg.get("hoist", False)),
-                    mentionable=bool(role_cfg.get("mentionable", False)),
+                    hoist=hoist,
+                    mentionable=mentionable,
+                    permissions=permissions,
                     reason="РНБ /setup-server",
                 )
                 roles_by_name[name] = role

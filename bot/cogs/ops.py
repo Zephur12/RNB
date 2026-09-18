@@ -205,12 +205,15 @@ class SquadSelectView(discord.ui.View):
 
 
 class StartOpEntryView(discord.ui.View):
-    """Persistent entry point — one button, posted in the ops-explainer
-    message in #сбор-на-операцию. Registered via bot.add_view() in
-    Ops.__init__ so it keeps working across restarts."""
+    """Persistent entry point — posted in the ops-explainer message in
+    #сбор-на-операцию. Registered via bot.add_view() in Ops.__init__ so it
+    keeps working across restarts. Also carries the "Готов играть сейчас"
+    toggle (moved here from the onboarding contract panel — thematically
+    this is where it belongs, next to the button that starts a game)."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
+        self.add_item(_shared.ReadyToggleButton(row=1))
 
     @discord.ui.button(label="🚀 Начать операцию", style=discord.ButtonStyle.primary, custom_id="rnb:start_op_entry")
     async def start(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:

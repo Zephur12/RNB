@@ -21,6 +21,8 @@ RANK_HIERARCHY = [
     "Верховный Главнокомандующий | Supreme Commander",
 ]
 
+ANNOUNCE_CHANNEL_NAME = "объявления-announcements"
+
 
 def _rank_label(role_name: str) -> str:
     return role_name.split(" | ")[0]
@@ -73,6 +75,15 @@ class PromoteSelectView(discord.ui.View):
             await self.target.send(f"Тебя повысили до «{rank_label}» в РНБ! 🎉")
         except discord.Forbidden:
             pass  # ЛС закрыты — это не ошибка, просто без уведомления
+
+        announce_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(ANNOUNCE_CHANNEL_NAME)
+        )
+        if announce_channel is not None:
+            try:
+                await announce_channel.send(f"🎉 {self.target.mention} повышен(а) до «{rank_label}»!")
+            except discord.Forbidden:
+                pass
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item) -> None:
         log.exception("Ошибка в PromoteSelectView", exc_info=error)

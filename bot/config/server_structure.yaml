@@ -24,6 +24,7 @@ roles:
   - name: "Верховный Главнокомандующий | Supreme Commander"
     color: "#e74c3c"
     hoist: true
+    permissions: ["administrator"]  # реальные права Discord, не только доступ к командам бота
   - name: "Глава отряда | Squad Lead"
     color: "#e67e22"
     hoist: true
@@ -32,7 +33,7 @@ roles:
     hoist: true
   - name: "Боец | Trooper"
     color: "#3498db"
-    hoist: false
+    hoist: true  # чтобы рядовой состав был отдельной группой в панели участников справа
   - name: "Новобранец | Recruit"
     color: "#95a5a6"
     hoist: false
