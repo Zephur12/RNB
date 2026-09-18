@@ -16,6 +16,7 @@ CHANNEL_TYPE_MAP = {
     "text": discord.ChannelType.text,
     "voice": discord.ChannelType.voice,
     "voice_trigger": discord.ChannelType.voice,
+    "forum": discord.ChannelType.forum,
 }
 
 
@@ -95,6 +96,7 @@ class Provisioning(commands.Cog):
                     name=name,
                     color=color,
                     hoist=bool(role_cfg.get("hoist", False)),
+                    mentionable=bool(role_cfg.get("mentionable", False)),
                     reason="РНБ /setup-server",
                 )
                 roles_by_name[name] = role
@@ -180,6 +182,10 @@ class Provisioning(commands.Cog):
         try:
             if chan_type == discord.ChannelType.voice:
                 await guild.create_voice_channel(
+                    name, category=category, overwrites=overwrites, reason="РНБ /setup-server"
+                )
+            elif chan_type == discord.ChannelType.forum:
+                await guild.create_forum(
                     name, category=category, overwrites=overwrites, reason="РНБ /setup-server"
                 )
             else:
