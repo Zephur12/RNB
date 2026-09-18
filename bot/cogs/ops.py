@@ -8,15 +8,20 @@ from typing import Optional
 
 import discord
 import yaml
-from discord import app_commands
 from discord.ext import commands
 
 from . import _shared
 
 log = logging.getLogger("rnb_wardogs.ops")
 
-SQUAD_CHOICES = [app_commands.Choice(name=label, value=role_name) for label, role_name in _shared.SQUADS]
 SQUAD_SLUGS = {role_name: label.lower() for label, role_name in _shared.SQUADS}
+
+NO_SQUAD_VALUE = "__none__"
+
+
+class OpsConfigError(Exception):
+    """Raised when ops.temp_category / ops.announce_channel are missing on
+    the server — surfaced to the user as a friendly message, not a crash."""
 
 
 class OpRsvpView(discord.ui.View):
@@ -59,11 +64,187 @@ class OpRsvpView(discord.ui.View):
         await interaction.response.edit_message(embed=embed)
 
 
+class EndOpView(discord.ui.View):
+    """Posted once inside each operation's own temp text channel. Not
+    registered via bot.add_view() — doesn't survive a bot restart, unlike
+    OpRsvpView/StartOpEntryView which live on long-lived pinned messages.
+    Accepted trade-off: if the bot restarts mid-op, the button on that one
+    channel goes dead, but the channel still self-cleans via the normal
+    empty-voice watcher (reconciled on_ready same as always) — nothing is
+    stuck forever, worst case someone just waits instead of clicking early.
+    """
+
+    def __init__(self, op_name: str) -> None:
+        super().__init__(timeout=None)
+        self.op_name = op_name
+        button = discord.ui.Button(
+            label="🛑 Завершить операцию",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"rnb:end_op:{op_name}",
+        )
+        button.callback = self._end
+        self.add_item(button)
+
+    async def _end(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта кнопка работает только на сервере.", ephemeral=True)
+            return
+
+        try:
+            config = _shared.load_config()
+        except (FileNotFoundError, yaml.YAMLError) as exc:
+            await interaction.response.send_message(f"Ошибка чтения конфига: `{exc}`", ephemeral=True)
+            return
+
+        report_channel_name = config.get("report", {}).get("channel")
+        allowed = _shared.allowed_role_names(config, report_channel_name)
+        if not _shared.has_access(member, allowed):
+            await interaction.response.send_message(
+                "Доступно только Главе отряда, Офицеру или выше.", ephemeral=True
+            )
+            return
+
+        temp_category_name = config.get("ops", {}).get("temp_category")
+        channel = interaction.channel
+        if (
+            not isinstance(channel, discord.TextChannel)
+            or channel.category is None
+            or channel.category.name != temp_category_name
+        ):
+            await interaction.response.send_message(
+                "Эта кнопка работает только внутри канала операции.", ephemeral=True
+            )
+            return
+
+        cog = interaction.client.get_cog("Ops")
+        voice_channel = discord.utils.get(channel.category.voice_channels, name=channel.name)
+        task = cog._active_watchers.pop(channel.name, None) if cog else None
+        if task is not None:
+            task.cancel()
+
+        await interaction.response.send_message("Операция завершена, удаляю каналы.", ephemeral=True)
+        await Ops._delete_op_channels(voice_channel, channel)
+
+
+class StartOpModal(discord.ui.Modal, title="Начать операцию"):
+    server_id = discord.ui.TextInput(label="Server ID (6 цифр)", min_length=6, max_length=6, placeholder="123456")
+    map_name = discord.ui.TextInput(label="Карта (необязательно)", required=False, max_length=100)
+
+    def __init__(self, squad_value: Optional[str]) -> None:
+        super().__init__()
+        self.squad_value = squad_value
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта форма работает только на сервере.", ephemeral=True)
+            return
+
+        server_id_value = str(self.server_id.value).strip()
+        if not server_id_value.isdigit() or len(server_id_value) != 6:
+            await interaction.response.send_message(
+                f"Server ID должен быть ровно 6 цифр, получено: «{server_id_value}».", ephemeral=True
+            )
+            return
+
+        cog = interaction.client.get_cog("Ops")
+        if cog is None:
+            await interaction.response.send_message("Внутренняя ошибка: cog Ops не загружен.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
+        map_value = str(self.map_name.value).strip() if self.map_name.value else None
+        try:
+            text_channel, voice_channel, announce_msg = await cog.create_operation(
+                guild, member, self.squad_value, server_id_value, map_value
+            )
+        except OpsConfigError as exc:
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        except discord.Forbidden:
+            await interaction.followup.send("Нет прав создавать каналы (Forbidden).", ephemeral=True)
+            return
+        except discord.HTTPException as exc:
+            await interaction.followup.send(f"Ошибка API при создании операции: `{exc}`", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"Операция начата: {text_channel.mention} / {voice_channel.mention}. Анонс: {announce_msg.jump_url}",
+            ephemeral=True,
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.exception("Ошибка в StartOpModal", exc_info=error)
+        message = f"Непредвиденная ошибка: `{error}`"
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+
+class SquadSelectView(discord.ui.View):
+    """Short-lived (not persistent — this ephemeral step only needs to
+    survive the few seconds until the user picks an option)."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=180)
+        options = [discord.SelectOption(label=label, value=role_name) for label, role_name in _shared.SQUADS]
+        options.append(discord.SelectOption(label="Без привязки к отряду", value=NO_SQUAD_VALUE))
+        select = discord.ui.Select(placeholder="Выбери отряд для операции", options=options)
+        select.callback = self._on_select
+        self.add_item(select)
+
+    async def _on_select(self, interaction: discord.Interaction) -> None:
+        value = interaction.data["values"][0]
+        squad_value = None if value == NO_SQUAD_VALUE else value
+        await interaction.response.send_modal(StartOpModal(squad_value=squad_value))
+
+
+class StartOpEntryView(discord.ui.View):
+    """Persistent entry point — one button, posted in the ops-explainer
+    message in #сбор-на-операцию. Registered via bot.add_view() in
+    Ops.__init__ so it keeps working across restarts."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🚀 Начать операцию", style=discord.ButtonStyle.primary, custom_id="rnb:start_op_entry")
+    async def start(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта кнопка работает только на сервере.", ephemeral=True)
+            return
+
+        try:
+            config = _shared.load_config()
+        except (FileNotFoundError, yaml.YAMLError) as exc:
+            await interaction.response.send_message(f"Ошибка чтения конфига: `{exc}`", ephemeral=True)
+            return
+
+        report_channel_name = config.get("report", {}).get("channel")
+        allowed = _shared.allowed_role_names(config, report_channel_name)
+        if not _shared.has_access(member, allowed):
+            await interaction.response.send_message(
+                "Доступно только Главе отряда, Офицеру или выше.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            "Выбери отряд для операции:", view=SquadSelectView(), ephemeral=True
+        )
+
+
 class Ops(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self._active_watchers: dict[str, asyncio.Task] = {}
         self.bot.add_view(OpRsvpView())
+        self.bot.add_view(StartOpEntryView())
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -109,7 +290,7 @@ class Ops(commands.Cog):
 
                 refreshed = self.bot.get_channel(voice_channel.id)
                 if refreshed is None:
-                    return  # уже удалён (например, через /end-op)
+                    return  # уже удалён (например, кнопкой "Завершить операцию")
 
                 if len(refreshed.members) == 0:
                     await self._delete_op_channels(voice_channel, text_channel)
@@ -131,50 +312,20 @@ class Ops(commands.Cog):
             except discord.HTTPException:
                 pass
 
-    @app_commands.command(name="start-op", description="Начать операцию: создать временные каналы сбора")
-    @app_commands.describe(
-        server="Игровой сервер: регион + номер, например 'EU 3' или 'NA 12'",
-        squad="Отряд (опционально)",
-        map="Карта (опционально)",
-        note="Заметка, например время сбора",
-    )
-    @app_commands.choices(squad=SQUAD_CHOICES)
-    async def start_op(
+    async def create_operation(
         self,
-        interaction: discord.Interaction,
-        server: str,
-        squad: Optional[app_commands.Choice[str]] = None,
-        map: Optional[str] = None,
-        note: Optional[str] = None,
-    ) -> None:
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message("Эта команда доступна только на сервере.", ephemeral=True)
-            return
-
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Не удалось определить твои роли.", ephemeral=True)
-            return
-
-        try:
-            config = _shared.load_config()
-        except FileNotFoundError:
-            await interaction.response.send_message(f"Конфиг не найден: `{_shared.CONFIG_PATH}`", ephemeral=True)
-            return
-        except yaml.YAMLError as exc:
-            await interaction.response.send_message(f"Ошибка чтения yaml: `{exc}`", ephemeral=True)
-            return
-
+        guild: discord.Guild,
+        member: discord.Member,
+        squad_value: Optional[str],
+        server_id: str,
+        map_name: Optional[str],
+    ) -> tuple[discord.TextChannel, discord.VoiceChannel, discord.Message]:
+        """Core operation-creation logic, shared by the button+modal flow.
+        Raises OpsConfigError if ops.temp_category/announce_channel aren't
+        on the server yet (caller should tell the user to run /setup-server).
+        """
+        config = _shared.load_config()
         ops_cfg = config.get("ops", {})
-        report_channel_name = config.get("report", {}).get("channel")
-        allowed_role_names = _shared.allowed_role_names(config, report_channel_name)
-        if not _shared.has_access(member, allowed_role_names):
-            await interaction.response.send_message(
-                "Команда доступна только Главе отряда, Офицеру или выше.", ephemeral=True
-            )
-            return
-
         temp_category_name = ops_cfg.get("temp_category")
         announce_channel_name = ops_cfg.get("announce_channel")
         delay = ops_cfg.get("cleanup_delay_seconds", 300)
@@ -184,40 +335,32 @@ class Ops(commands.Cog):
             guild.text_channels, name=_shared.normalize_channel_name(announce_channel_name)
         )
         if category is None or announce_channel is None:
-            await interaction.response.send_message(
+            raise OpsConfigError(
                 f"Категория «{temp_category_name}» или канал «{announce_channel_name}» не найдены. "
-                "Запусти `/setup-server`.",
-                ephemeral=True,
+                "Попроси Офицера прогнать `/setup-server`."
             )
-            return
 
-        await interaction.response.defer(thinking=True, ephemeral=True)
-
-        squad_slug = SQUAD_SLUGS.get(squad.value, "операция") if squad else "операция"
+        squad_slug = SQUAD_SLUGS.get(squad_value, "операция") if squad_value else "операция"
         op_name = f"операция-{squad_slug}-{secrets.token_hex(2)}"
 
-        try:
-            text_channel = await guild.create_text_channel(op_name, category=category, reason="РНБ /start-op")
-            voice_channel = await guild.create_voice_channel(op_name, category=category, reason="РНБ /start-op")
-        except discord.Forbidden:
-            await interaction.followup.send("Нет прав создавать каналы (Forbidden).", ephemeral=True)
-            return
-        except discord.HTTPException as exc:
-            await interaction.followup.send(f"Ошибка API при создании каналов: `{exc}`", ephemeral=True)
-            return
+        text_channel = await guild.create_text_channel(op_name, category=category, reason="РНБ: начата операция")
+        voice_channel = await guild.create_voice_channel(op_name, category=category, reason="РНБ: начата операция")
 
-        squad_role = discord.utils.get(guild.roles, name=squad.value) if squad else None
+        squad_role = discord.utils.get(guild.roles, name=squad_value) if squad_value else None
+        squad_label = next((label for label, name in _shared.SQUADS if name == squad_value), None)
 
         embed = discord.Embed(
             title="🎯 Операция начата",
             color=discord.Color.blurple(),
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(name="Сервер", value=server, inline=True)
-        embed.add_field(name="Отряд", value=squad.name if squad else "Сборная / без отряда", inline=True)
-        embed.add_field(name="Карта", value=map or "—", inline=True)
-        if note:
-            embed.add_field(name="Заметка", value=note, inline=False)
+        embed.add_field(
+            name="Server ID",
+            value=f"`{server_id}` — зайти: Обозреватель серверов → Join By ID",
+            inline=False,
+        )
+        embed.add_field(name="Отряд", value=squad_label or "Сборная / без отряда", inline=True)
+        embed.add_field(name="Карта", value=map_name or "—", inline=True)
         embed.add_field(
             name="Каналы",
             value=f"💬 {text_channel.mention}\n🔊 {voice_channel.mention}",
@@ -227,77 +370,19 @@ class Ops(commands.Cog):
         embed.set_footer(text=f"Начал: {member.display_name}", icon_url=member.display_avatar.url)
 
         content = squad_role.mention if squad_role else None
+        announce_msg = await announce_channel.send(content=content, embed=embed, view=OpRsvpView())
+
         try:
-            await announce_channel.send(content=content, embed=embed, view=OpRsvpView())
+            await text_channel.send(
+                "Панель этой операции. Когда закончите (или собрались зря) — жмите кнопку ниже, "
+                "не дожидаясь автоочистки.",
+                view=EndOpView(op_name),
+            )
         except discord.Forbidden:
-            log.warning("Нет прав постить анонс операции в «%s»", announce_channel_name)
+            pass
 
         self._start_watcher(op_name, voice_channel, text_channel, delay)
-
-        await interaction.followup.send(
-            f"Операция начата: {text_channel.mention} / {voice_channel.mention}. "
-            f"Анонс в {announce_channel.mention}.",
-            ephemeral=True,
-        )
-
-    @app_commands.command(name="end-op", description="Досрочно завершить операцию (запускать в её текстовом канале)")
-    async def end_op(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        if guild is None:
-            await interaction.response.send_message("Эта команда доступна только на сервере.", ephemeral=True)
-            return
-
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            await interaction.response.send_message("Не удалось определить твои роли.", ephemeral=True)
-            return
-
-        try:
-            config = _shared.load_config()
-        except (FileNotFoundError, yaml.YAMLError) as exc:
-            await interaction.response.send_message(f"Ошибка чтения конфига: `{exc}`", ephemeral=True)
-            return
-
-        report_channel_name = config.get("report", {}).get("channel")
-        allowed_role_names = _shared.allowed_role_names(config, report_channel_name)
-        if not _shared.has_access(member, allowed_role_names):
-            await interaction.response.send_message(
-                "Команда доступна только Главе отряда, Офицеру или выше.", ephemeral=True
-            )
-            return
-
-        temp_category_name = config.get("ops", {}).get("temp_category")
-        channel = interaction.channel
-        if (
-            not isinstance(channel, discord.TextChannel)
-            or channel.category is None
-            or channel.category.name != temp_category_name
-        ):
-            await interaction.response.send_message(
-                f"Эту команду нужно запускать внутри временного текстового канала операции "
-                f"(категория «{temp_category_name}»).",
-                ephemeral=True,
-            )
-            return
-
-        voice_channel = discord.utils.get(channel.category.voice_channels, name=channel.name)
-
-        task = self._active_watchers.pop(channel.name, None)
-        if task is not None:
-            task.cancel()
-
-        await interaction.response.send_message("Операция завершена, удаляю каналы.", ephemeral=True)
-        await self._delete_op_channels(voice_channel, channel)
-
-    @start_op.error
-    @end_op.error
-    async def ops_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-        log.exception("Ошибка в команде операций", exc_info=error)
-        message = f"Непредвиденная ошибка: `{error}`"
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+        return text_channel, voice_channel, announce_msg
 
 
 async def setup(bot: commands.Bot) -> None:
