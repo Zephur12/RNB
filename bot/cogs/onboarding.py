@@ -21,50 +21,30 @@ CHAT_CHANNEL_NAME = "💬-болталка-chat"
 WELCOME_EMBED_TITLE = "📜 Контракт РНБ"
 OPS_EXPLAINER_TITLE = "📋 Как здесь появляются операции"
 
-SQUAD_DESCRIPTIONS = [
-    ("⚔️ Штурм | Assault", "первая линия, берёт и держит точки"),
-    ("📦 Логистика | Logistics", "снабжение, чтобы штурм не остался без ресурсов"),
-    ("🔍 Разведка | Recon", "идёт впереди, докладывает обстановку"),
-    ("🚚 Транспорт | Transport", "перевозит людей и технику по вызову"),
-    ("🛠 Поддержка | Support", "прикрывает отход, огневая поддержка"),
-]
-
 
 def _build_welcome_embed(guild: discord.Guild) -> discord.Embed:
+    """Deliberately the same shape as the "📜 Правила РНБ" message right below
+    it in the channel — plain numbered description, no fields. The old
+    version (5 squad fields + 2 more fields on top of the description) read
+    as cluttered next to the clean rules message; this matches it."""
     ops_ref = _shared.channel_ref(guild, OPS_ANNOUNCE_CHANNEL_NAME)
     tactics_ref = _shared.channel_ref(guild, TACTICS_CHANNEL_NAME)
 
     embed = discord.Embed(
         title=WELCOME_EMBED_TITLE,
         description=(
-            "Клан синих (Lonestar) в WarDogs. Нажатием кнопки отряда ниже ты ставишь подпись "
-            "под этим контрактом:\n"
-            "— слушаешь приказы своего Главы отряда на операции;\n"
-            "— не сливаешь стратегию клана посторонним;\n"
-            "— уважаешь остальных, даже когда не согласен.\n\n"
-            "Полные условия — в закреплённых правилах выше. Дальше — 3 шага:\n"
-            "1️⃣ Выбери отряд и подпишись (30 сек)\n"
-            f"2️⃣ Загляни в {ops_ref} — там анонсы ближайших игр, жми «✅ Иду»\n"
-            "3️⃣ В назначенное время — голосовой канал операции, дальше вместе в саму игру"
+            "Клан синих (Lonestar) в WarDogs. Нажатием кнопки отряда ниже ты подписываешь контракт:\n"
+            "1. Слушаешь приказы своего Главы отряда на операции.\n"
+            "2. Не сливаешь стратегию клана посторонним.\n"
+            "3. Уважаешь остальных, даже когда не согласен.\n\n"
+            "Полные условия — в правилах ниже.\n\n"
+            "**Отряды:** ⚔️ Штурм · 📦 Логистика · 🔍 Разведка · 🚚 Транспорт · 🛠 Поддержка\n"
+            "Не уверен какой? Разведка/Логистика проще для новичков в WarDogs, Штурм — если уже "
+            "есть опыт в тактических шутерах (Arma, Tarkov, Squad).\n\n"
+            f"После подписи — загляни в {ops_ref} (анонсы ближайших игр, жми «✅ Иду»). "
+            f"Тактика подробно — в {tactics_ref}, необязательно читать сейчас."
         ),
         color=discord.Color.blurple(),
-    )
-    for name, desc in SQUAD_DESCRIPTIONS:
-        embed.add_field(name=name, value=desc, inline=False)
-
-    embed.add_field(
-        name="Не уверен, что выбрать?",
-        value=(
-            "Разведка и Логистика — хороший старт, если WarDogs для тебя новая игра "
-            "(учишь карту без давления первой линии). Штурм — если уже есть опыт в тактических "
-            "шутерах (Arma, Tarkov, Squad и т.п.) и хочешь сразу в бой."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="📚 Хочешь знать больше?",
-        value=f"Тактика клана подробно — в {tactics_ref}, необязательно читать сейчас.",
-        inline=False,
     )
     return embed
 
