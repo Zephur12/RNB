@@ -68,9 +68,8 @@ def _build_guide_embed(guild: discord.Guild) -> discord.Embed:
             "стабильный вклад за долгий срок, не разовая инициатива.\n\n"
             "**Верховный Главнокомандующий** — не ранг, который зарабатывают по чек-листу. Это "
             "решение о том, кто несёт ответственность за клан целиком.\n\n"
-            "Если кажется, что заслужил повышение — спроси прямо у своего Главы отряда или в "
-            f"{feedback_ref}. Быть честным насчёт этого и есть весь путеводитель: выше — не механика, "
-            "а доверие."
+            "Готов(а)? Жми «🎖 Запросить повышение» ниже — запрос уйдёт в офицерский состав. "
+            "Быть честным насчёт этого и есть весь путеводитель: выше — не механика, а доверие."
         ),
         color=discord.Color.blurple(),
     )
@@ -403,6 +402,7 @@ class Onboarding(commands.Cog):
                 guide_channel,
                 marker_title=GUIDE_EMBED_TITLE,
                 embed=_build_guide_embed(guild),
+                view=promotion.PromotionRequestView(),
             )
             results.append(f"«{GUIDE_EMBED_TITLE}» — опубликовано и закреплено в {guide_channel.mention}.")
         except discord.HTTPException as exc:

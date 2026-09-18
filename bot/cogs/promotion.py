@@ -22,10 +22,24 @@ RANK_HIERARCHY = [
 ]
 
 ANNOUNCE_CHANNEL_NAME = "объявления-announcements"
+OFFICER_DESK_CHANNEL_NAME = "офицерский-стол"
 
 
 def _rank_label(role_name: str) -> str:
     return role_name.split(" | ")[0]
+
+
+def _higher_ranks_for(member: discord.Member) -> list[str]:
+    """Ranks strictly above the member's current (highest-held) rank. Empty
+    if already at the top or holding no rank at all is treated as "below
+    Новобранец" (returns the full hierarchy) — shared by both the officer-
+    side «РНБ: Повысить» menu and the member-side «Запросить повышение»
+    button, so the two stay in sync by construction."""
+    current_index = -1
+    for i, rank_name in enumerate(RANK_HIERARCHY):
+        if discord.utils.get(member.roles, name=rank_name) is not None:
+            current_index = i  # берём САМЫЙ высокий, если вдруг держит несколько
+    return RANK_HIERARCHY[current_index + 1 :]
 
 
 class PromoteSelectView(discord.ui.View):
@@ -94,6 +108,94 @@ class PromoteSelectView(discord.ui.View):
             await interaction.response.send_message(message, ephemeral=True)
 
 
+class PromotionRequestModal(discord.ui.Modal, title="Запрос на повышение"):
+    reason = discord.ui.TextInput(
+        label="Что ты сделал / почему считаешь, что готов?",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+    )
+
+    def __init__(self, higher_ranks: list[str]) -> None:
+        super().__init__()
+        self.higher_ranks = higher_ranks
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта форма работает только на сервере.", ephemeral=True)
+            return
+
+        current_rank = next((r for r in reversed(RANK_HIERARCHY) if discord.utils.get(member.roles, name=r)), None)
+        current_label = _rank_label(current_rank) if current_rank else "без ранга"
+
+        desk_channel = discord.utils.get(
+            guild.text_channels, name=_shared.normalize_channel_name(OFFICER_DESK_CHANNEL_NAME)
+        )
+        if desk_channel is None:
+            await interaction.response.send_message(
+                f"Канал «{OFFICER_DESK_CHANNEL_NAME}» не найден. Попроси Офицера прогнать `/setup-server`.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🎖 Запрос на повышение",
+            description=f"{member.mention} (сейчас: «{current_label}») считает, что готов(а) к повышению.",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Обоснование", value=str(self.reason.value), inline=False)
+
+        try:
+            await desk_channel.send(embed=embed)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                f"Не хватает прав постить в {desk_channel.mention} (Forbidden).", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"Запрос отправлен в {desk_channel.mention} — с тобой свяжутся.", ephemeral=True
+        )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.exception("Ошибка в PromotionRequestModal", exc_info=error)
+        message = f"Непредвиденная ошибка: `{error}`"
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+
+class PromotionRequestView(discord.ui.View):
+    """Persistent — posted once via /post-onboarding on the rank-guide
+    message. Replaces the old "спроси у Главы отряда/#обратная-связь"
+    text with an actual, undroppable request instead of hoping someone
+    remembers a chat message."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🎖 Запросить повышение", style=discord.ButtonStyle.primary, custom_id="rnb:promotion_request")
+    async def request(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        guild = interaction.guild
+        member = interaction.user
+        if guild is None or not isinstance(member, discord.Member):
+            await interaction.response.send_message("Эта кнопка работает только на сервере.", ephemeral=True)
+            return
+
+        higher_ranks = _higher_ranks_for(member)
+        if not higher_ranks:
+            current_rank = next((r for r in reversed(RANK_HIERARCHY) if discord.utils.get(member.roles, name=r)), None)
+            current_label = _rank_label(current_rank) if current_rank else "без ранга"
+            await interaction.response.send_message(
+                f"Ты уже «{current_label}» — выше повышать некуда.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(PromotionRequestModal(higher_ranks))
+
+
 async def _promote_callback(interaction: discord.Interaction, member: discord.Member) -> None:
     # discord.py raises TypeError at import time if a context menu callback is
     # defined as a class method ("context menus cannot be defined inside a
@@ -119,14 +221,10 @@ async def _promote_callback(interaction: discord.Interaction, member: discord.Me
         )
         return
 
-    current_index = -1
-    for i, rank_name in enumerate(RANK_HIERARCHY):
-        if discord.utils.get(member.roles, name=rank_name) is not None:
-            current_index = i  # берём САМЫЙ высокий, если вдруг держит несколько
-
-    higher_ranks = RANK_HIERARCHY[current_index + 1 :]
+    higher_ranks = _higher_ranks_for(member)
     if not higher_ranks:
-        current_label = _rank_label(RANK_HIERARCHY[current_index]) if current_index >= 0 else "без ранга"
+        current_rank = next((r for r in reversed(RANK_HIERARCHY) if discord.utils.get(member.roles, name=r)), None)
+        current_label = _rank_label(current_rank) if current_rank else "без ранга"
         await interaction.response.send_message(
             f"{member.mention} уже «{current_label}» — выше повышать некуда.", ephemeral=True
         )
@@ -151,6 +249,7 @@ async def _promote_error(interaction: discord.Interaction, error: app_commands.A
 class Promotion(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.bot.add_view(PromotionRequestView())
         self.promote_menu = app_commands.ContextMenu(name="РНБ: Повысить", callback=_promote_callback)
         self.promote_menu.error(_promote_error)
         self.bot.tree.add_command(self.promote_menu)
